@@ -97,6 +97,100 @@ st.markdown(
 st.divider()
 
 # =====================================================================
+# USER GUIDE
+# =====================================================================
+with st.expander("📖 **HOW TO USE THIS APP — Complete Guide** (click to expand)", expanded=False):
+    st.markdown("""
+### Step-by-Step Instructions
+
+**This app monitors a 6-cylinder, 2-stroke marine diesel main engine using 65 sensor parameters. It generates realistic engine data, displays interactive dashboards, and uses AI to diagnose problems like a Chief Engineer would — with engineering reasoning, math, and maintenance recommendations.**
+
+---
+
+#### STEP 1: Load Engine Data
+You have two options:
+
+**Option A — Generate Demo Data (recommended for first-time users)**
+1. Go to the **"Generate Demo Data"** tab below
+2. Set **Number of readings** (200 is a good start — each reading = 4-hour watch interval, so 200 readings = ~33 days of engine operation)
+3. Check **"Inject faults"** to simulate real engine degradation (the AI will try to detect these — it doesn't know what faults were injected)
+4. Click **"Generate Engine Data"**
+5. You'll see a summary showing how many readings and parameters were generated
+
+**Option B — Upload Your Own CSV**
+1. Go to the **"Upload CSV"** tab
+2. Upload a CSV file with the 65-column format (download a demo CSV first using Option A to see the expected format)
+3. Column names must match exactly: `engine_rpm`, `cyl_1_exh_temp_c`, `mb_1_temp_c`, etc.
+
+---
+
+#### STEP 2: Review the Dashboard
+Once data is loaded, you'll see:
+
+1. **Engine Overview KPIs** — Top-line numbers: RPM, Load %, Power, SFOC, Average Exhaust Temp, Exhaust Deviation
+2. **Alarm Status** — Green (all OK), Yellow (warnings), Red (alarms) based on engine maker limits
+3. **8 Dashboard Tabs** — Click each tab to explore:
+
+| Tab | What to look for |
+|-----|-----------------|
+| **Cylinders** | Are all 6 exhaust temps tracking together? Any one cylinder diverging? Pmax and Pcomp balanced? |
+| **Bearings** | Are all 7 main bearing temps stable? Any one bearing trending upward? |
+| **Cooling** | JCW outlet temp stable? Pressure holding? Scav air temp normal (below 55°C)? |
+| **Lube Oil** | LO pressure above 2.5 bar? LO outlet temp below 55°C? |
+| **Turbocharger** | TC RPM stable? Exhaust inlet temp below 500°C? |
+| **Fuel** | FO temp and viscosity consistent? Fuel rack position matching load? |
+| **Performance** | RPM, load, power, SFOC — are they consistent with the operating profile? |
+| **Raw Data** | Full dataset — download CSV for your own analysis |
+
+---
+
+#### STEP 3: Run AI Analysis
+1. **Enter your OpenAI API key** in the sidebar (left panel)
+   - Get a key at [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
+   - Recommended model: **gpt-4o** for best analysis, **gpt-4o-mini** for faster/cheaper
+2. Scroll down to **"AI Predictive Analysis — Chief Engineer Mode"**
+3. Click **"Run AI Diagnostic Analysis"**
+4. Wait 15-30 seconds — the AI analyzes all 65 parameters with trend detection
+
+---
+
+#### STEP 4: Read the AI Report
+The AI report includes:
+
+| Section | What it tells you |
+|---------|------------------|
+| **Critical Findings** | Anything needing immediate action — with the math and engineering reasoning |
+| **Cylinder-by-Cylinder** | Each cylinder compared — deviations calculated as °C and % from mean |
+| **Bearing Assessment** | Each bearing's rate of change in °C/day — days until warning/alarm limits |
+| **Turbocharger Health** | Efficiency calculated using fan laws (P ∝ N²) |
+| **Cooling & Lubrication** | JCW delta-T, LO pressure trends, correlation to bearing health |
+| **Maintenance Schedule** | Priority-ordered with WHAT, WHEN, WHY, parts needed, downtime estimate |
+| **Health Score** | Out of 100 with sub-scores for combustion, bearings, TC, systems, trend |
+
+---
+
+#### What Makes This Different from Generic AI?
+- **Real engineering principles** — Every finding references thermodynamics, tribology, combustion theory, or fluid mechanics
+- **Math-backed predictions** — Rate of change calculations, days-until-failure estimates, percentage deviations
+- **Maritime-specific** — ISM Code references, classification society requirements, PMS terminology
+- **Fault injection** — Demo data includes real degradation patterns (injector failure, bearing wear, TC fouling, etc.) that the AI must detect without being told
+
+---
+
+#### Understanding the Key Parameters
+
+**Exhaust Temperature Deviation** — The single most important number. In a healthy engine, all 6 cylinders have similar exhaust temps. If one cylinder is 30°C+ above the mean, something is wrong (usually a fuel injector). 50°C+ is an alarm.
+
+**Pmax (Peak Pressure)** — The highest pressure in the cylinder during combustion. Healthy engine: all cylinders within 3-5 bar of each other. If Pmax drops on one cylinder but Pcomp is normal → fuel problem. If both drop → compression problem (rings or valve).
+
+**Main Bearing Temperature** — Healthy: 45-60°C. Warning: 65°C. Alarm: 75°C. The TREND matters more than the absolute value. A bearing rising 1°C/day needs investigation. Rising 3°C/day needs immediate action.
+
+**Scavenge Air Temperature** — Healthy: 35-45°C. Above 55°C = scavenge fire risk. The under-piston space contains lube oil residue + hot air — if conditions are right, it ignites.
+
+**SFOC (Specific Fuel Oil Consumption)** — Grams of fuel per kWh. Lower is more efficient. Rising SFOC with same load = engine condition degrading (poor combustion, increased friction, or TC fouling).
+    """)
+
+# =====================================================================
 # DATA INPUT
 # =====================================================================
 st.subheader("📊 Load Engine Data")
@@ -420,36 +514,63 @@ if df is not None:
             # Build comprehensive data summary for AI
             summary_parts = []
 
+            # Dataset overview
+            total_hours = (len(df) * 4)
+            summary_parts.append("=== DATASET INFO ===")
+            summary_parts.append(
+                f"Readings: {len(df)}, Interval: 4 hours (watch-by-watch), "
+                f"Total span: ~{total_hours} hours (~{total_hours / 24:.0f} days), "
+                f"Running hours: {latest.get('hours_running', 'N/A')}"
+            )
+
             # Overall stats
-            summary_parts.append("=== ENGINE OVERVIEW ===")
+            summary_parts.append("\n=== ENGINE OVERVIEW ===")
             for param in [
                 "engine_rpm", "engine_load_pct", "shaft_power_kw", "sfoc_g_kwh",
             ]:
                 if param in df.columns:
+                    early_v = df[param].iloc[: len(df) // 3].mean()
+                    late_v = df[param].iloc[-len(df) // 3 :].mean()
+                    change = late_v - early_v
                     summary_parts.append(
                         f"{param}: mean={df[param].mean():.1f}, "
                         f"min={df[param].min():.1f}, max={df[param].max():.1f}, "
-                        f"latest={latest[param]:.1f}"
+                        f"latest={latest[param]:.1f}, std_dev={df[param].std():.2f}, "
+                        f"early_avg={early_v:.1f}, late_avg={late_v:.1f}, change={change:+.1f}"
                     )
 
-            # Per-cylinder exhaust temps
+            # Per-cylinder exhaust temps — enriched with cross-cylinder stats
             summary_parts.append("\n=== CYLINDER EXHAUST TEMPERATURES (°C) ===")
+            exh_means = {}
             for cyl in range(1, NUM_CYLINDERS + 1):
                 col_name = f"cyl_{cyl}_exh_temp_c"
                 if col_name in df.columns:
-                    # Early (first 30%) vs Late (last 30%) for trend
+                    exh_means[cyl] = df[col_name].mean()
+            fleet_mean = np.mean(list(exh_means.values())) if exh_means else 0
+            summary_parts.append(f"Fleet mean exhaust temp: {fleet_mean:.1f}°C")
+
+            for cyl in range(1, NUM_CYLINDERS + 1):
+                col_name = f"cyl_{cyl}_exh_temp_c"
+                if col_name in df.columns:
                     early = df[col_name].iloc[: len(df) // 3].mean()
                     late = df[col_name].iloc[-len(df) // 3 :].mean()
+                    dev_from_mean = exh_means.get(cyl, 0) - fleet_mean
+                    rate_per_day = (late - early) / max(1, (len(df) * 4 / 24 / 3))
                     summary_parts.append(
                         f"Cyl {cyl}: mean={df[col_name].mean():.1f}, "
                         f"latest={latest[col_name]:.1f}, "
+                        f"deviation_from_fleet_mean={dev_from_mean:+.1f}°C, "
                         f"early_avg={early:.1f}, late_avg={late:.1f}, "
+                        f"change={late - early:+.1f}°C, rate={rate_per_day:+.2f}°C/day, "
                         f"trend={'RISING' if late > early + 5 else 'FALLING' if late < early - 5 else 'STABLE'}"
                     )
             if "exh_temp_max_dev_c" in df.columns:
+                early_dev = df["exh_temp_max_dev_c"].iloc[: len(df) // 3].mean()
+                late_dev = df["exh_temp_max_dev_c"].iloc[-len(df) // 3 :].mean()
                 summary_parts.append(
                     f"Max exhaust deviation: latest={latest['exh_temp_max_dev_c']:.1f}°C, "
-                    f"max_recorded={df['exh_temp_max_dev_c'].max():.1f}°C "
+                    f"max_recorded={df['exh_temp_max_dev_c'].max():.1f}°C, "
+                    f"early_avg_dev={early_dev:.1f}°C, late_avg_dev={late_dev:.1f}°C "
                     f"(warning: 30°C, alarm: 50°C)"
                 )
 
@@ -487,37 +608,59 @@ if df is not None:
                         f"trend={'RISING' if late > early + 3 else 'STABLE'}"
                     )
 
-            # Main bearing temps
-            summary_parts.append("\n=== MAIN BEARING TEMPERATURES (°C) ===")
+            # Main bearing temps — enriched with rate and days-to-limit
+            days_span = max(1, len(df) * 4 / 24 / 3)  # days covered by 1/3 of dataset
+            summary_parts.append(f"\n=== MAIN BEARING TEMPERATURES (°C) === [warning: {BEARING_LIMITS['warning']}°C, alarm: {BEARING_LIMITS['alarm']}°C]")
             for mb in range(1, NUM_MAIN_BEARINGS + 1):
                 col_name = f"mb_{mb}_temp_c"
                 if col_name in df.columns:
                     early = df[col_name].iloc[: len(df) // 3].mean()
                     late = df[col_name].iloc[-len(df) // 3 :].mean()
+                    rate_per_day = (late - early) / days_span
+                    latest_val = latest[col_name]
+                    days_to_warn = ((BEARING_LIMITS["warning"] - latest_val) / rate_per_day) if rate_per_day > 0.1 else float("inf")
+                    days_to_alarm = ((BEARING_LIMITS["alarm"] - latest_val) / rate_per_day) if rate_per_day > 0.1 else float("inf")
+                    dtw_str = f"{days_to_warn:.0f} days" if days_to_warn < 365 else "N/A (stable)"
+                    dta_str = f"{days_to_alarm:.0f} days" if days_to_alarm < 365 else "N/A (stable)"
                     summary_parts.append(
-                        f"MB #{mb}: mean={df[col_name].mean():.1f}, "
-                        f"latest={latest[col_name]:.1f}, "
+                        f"MB #{mb}: mean={df[col_name].mean():.1f}, latest={latest_val:.1f}, "
                         f"max={df[col_name].max():.1f}, "
-                        f"trend={'RISING' if late > early + 2 else 'STABLE'} "
-                        f"(warning: {BEARING_LIMITS['warning']}°C, alarm: {BEARING_LIMITS['alarm']}°C)"
+                        f"early_avg={early:.1f}, late_avg={late:.1f}, "
+                        f"rate={rate_per_day:+.2f}°C/day, "
+                        f"days_to_warning={dtw_str}, days_to_alarm={dta_str}, "
+                        f"trend={'RISING' if late > early + 2 else 'STABLE'}"
                     )
             if "thrust_brg_temp_c" in df.columns:
                 early_t = df["thrust_brg_temp_c"].iloc[: len(df) // 3].mean()
                 late_t = df["thrust_brg_temp_c"].iloc[-len(df) // 3 :].mean()
+                rate_t = (late_t - early_t) / days_span
                 summary_parts.append(
                     f"Thrust Bearing: mean={df['thrust_brg_temp_c'].mean():.1f}, "
                     f"latest={latest['thrust_brg_temp_c']:.1f}, "
+                    f"rate={rate_t:+.2f}°C/day, "
                     f"trend={'RISING' if late_t > early_t + 2 else 'STABLE'}"
                 )
 
-            # Cooling water
+            # Cooling water — enriched with delta-T
             summary_parts.append("\n=== JACKET COOLING WATER ===")
+            if "jcw_inlet_temp_c" in df.columns and "jcw_outlet_temp_c" in df.columns:
+                df_temp = df.copy()
+                df_temp["jcw_delta_t"] = df_temp["jcw_outlet_temp_c"] - df_temp["jcw_inlet_temp_c"]
+                early_dt = df_temp["jcw_delta_t"].iloc[: len(df) // 3].mean()
+                late_dt = df_temp["jcw_delta_t"].iloc[-len(df) // 3 :].mean()
+                summary_parts.append(
+                    f"JCW delta-T (outlet-inlet): latest={latest['jcw_outlet_temp_c'] - latest['jcw_inlet_temp_c']:.1f}°C, "
+                    f"early_avg={early_dt:.1f}°C, late_avg={late_dt:.1f}°C "
+                    f"(normal range: 8-12°C, rising delta-T = reduced flow or increased heat load)"
+                )
             for p in ["jcw_inlet_temp_c", "jcw_outlet_temp_c", "jcw_pressure_bar"]:
                 if p in df.columns:
                     early_v = df[p].iloc[: len(df) // 3].mean()
                     late_v = df[p].iloc[-len(df) // 3 :].mean()
                     summary_parts.append(
                         f"{p}: mean={df[p].mean():.2f}, latest={latest[p]:.2f}, "
+                        f"early_avg={early_v:.2f}, late_avg={late_v:.2f}, "
+                        f"change={late_v - early_v:+.2f}, "
                         f"trend={'CHANGING' if abs(late_v - early_v) > 1.5 else 'STABLE'}"
                     )
 
@@ -533,14 +676,33 @@ if df is not None:
                         f"trend={'CHANGING' if abs(late_v - early_v) > 1 else 'STABLE'}"
                     )
 
-            # Turbocharger
+            # Turbocharger — enriched with fan law analysis
             summary_parts.append("\n=== TURBOCHARGER ===")
+            tc_early_rpm = df["tc_rpm"].iloc[: len(df) // 3].mean() if "tc_rpm" in df.columns else 0
+            tc_late_rpm = df["tc_rpm"].iloc[-len(df) // 3 :].mean() if "tc_rpm" in df.columns else 0
+            scav_early = df["scav_air_pressure_bar"].iloc[: len(df) // 3].mean() if "scav_air_pressure_bar" in df.columns else 0
+            scav_late = df["scav_air_pressure_bar"].iloc[-len(df) // 3 :].mean() if "scav_air_pressure_bar" in df.columns else 0
+
+            if tc_early_rpm > 0 and scav_early > 0:
+                rpm_change_pct = ((tc_late_rpm - tc_early_rpm) / tc_early_rpm) * 100
+                expected_pressure_ratio = (tc_late_rpm / tc_early_rpm) ** 2
+                expected_scav = scav_early * expected_pressure_ratio
+                actual_scav_change_pct = ((scav_late - scav_early) / scav_early) * 100
+                summary_parts.append(
+                    f"FAN LAW ANALYSIS: TC RPM changed {rpm_change_pct:+.1f}%, "
+                    f"expected scav pressure by fan law (P∝N²) = {expected_scav:.3f} bar, "
+                    f"actual scav pressure = {scav_late:.3f} bar, "
+                    f"actual scav change = {actual_scav_change_pct:+.1f}%"
+                )
+
             for p in ["tc_rpm", "tc_exh_inlet_temp_c", "tc_exh_outlet_temp_c"]:
                 if p in df.columns:
                     early_v = df[p].iloc[: len(df) // 3].mean()
                     late_v = df[p].iloc[-len(df) // 3 :].mean()
                     summary_parts.append(
                         f"{p}: mean={df[p].mean():.1f}, latest={latest[p]:.1f}, "
+                        f"early_avg={early_v:.1f}, late_avg={late_v:.1f}, "
+                        f"change={late_v - early_v:+.1f}, "
                         f"trend={'CHANGING' if abs(late_v - early_v) > 5 else 'STABLE'}"
                     )
 
@@ -576,53 +738,118 @@ if df is not None:
 
             data_summary = "\n".join(summary_parts)
 
-            system_prompt = """You are the Chief Engineer on a merchant vessel, analyzing main engine performance data from the engine room automation system. You have 25+ years of experience with 2-stroke slow-speed marine diesel engines (MAN B&W / Wartsila). You understand:
+            system_prompt = """You are the Chief Engineer on a merchant vessel, analyzing main engine performance data from the engine room automation system. You have 25+ years of experience with 2-stroke slow-speed marine diesel engines (MAN B&W / Wartsila). You are writing a diagnostic report that will be read by marine engineers, superintendents, and classification society surveyors.
 
-- Per-cylinder exhaust temperature analysis and what deviations mean (injector issues, compression loss, fuel timing)
-- Peak pressure (Pmax) and compression pressure (Pcomp) relationships — what Pmax drop with normal Pcomp means vs both dropping
-- Main bearing temperature trends and when they indicate wiping or oil film breakdown
-- Turbocharger performance — TC RPM drop with exhaust temp rise = fouling
-- Jacket cooling water delta-T and pressure — what rising outlet temp or dropping pressure means
-- Lube oil system — pressure drops, temperature rises, contamination indicators
-- Scavenge air temperature — the connection to under-piston fires
-- Cylinder liner temperatures — relation to lube oil feed rate and ring condition
-- Fuel system — viscosity, temperature, rack position relationships
+YOUR CORE APPROACH — Every finding must include THREE things:
+1. THE OBSERVATION — What the data shows (exact numbers, exact cylinder/bearing)
+2. THE REASONING — WHY this matters, the engineering principle behind it
+3. THE MATH — Show the calculation that proves your point
 
-Your analysis must be:
-1. SPECIFIC — Reference actual cylinder numbers, bearing numbers, exact values
-2. COMPARATIVE — Compare early vs late trends to identify degradation
-3. ROOT-CAUSE ORIENTED — Don't just flag symptoms, identify probable causes
-4. ACTIONABLE — Give specific maintenance actions with priority and timeframe
-5. Use proper maritime terminology (ISM Code, class requirements, PMS)
+=== ENGINEERING PRINCIPLES YOU MUST APPLY ===
 
-Structure your response as:
+COMBUSTION & EXHAUST ANALYSIS:
+- Exhaust temperature is a direct indicator of combustion quality in each cylinder.
+- In a healthy engine, all cylinder exhaust temps should be within ±15°C of the mean. Deviation beyond 30°C = WARNING, beyond 50°C = ALARM.
+- HIGH exhaust on one cylinder + LOW Pmax on same cylinder + NORMAL Pcomp = fuel injector problem (poor atomisation → incomplete combustion → after-burning raises exhaust temp while Pmax drops because combustion happens too late in the expansion stroke).
+- HIGH exhaust on one cylinder + LOW Pmax + LOW Pcomp = piston ring blow-by or exhaust valve leakage (compression loss means both pressures drop).
+- When showing this, CALCULATE: "Cyl X exhaust = Y°C, mean of all cylinders = Z°C, deviation = Y-Z = D°C (D/Z × 100 = P% above mean)".
+- Reference: The relationship between exhaust temp and injection timing follows from the diesel cycle — fuel injected late burns during expansion stroke, converting less energy to mechanical work (lower Pmax) and more to heat (higher exhaust temp).
 
-## 🚨 CRITICAL FINDINGS (if any)
-Immediate action items
+BEARING ANALYSIS:
+- Main bearings operate on hydrodynamic lubrication — a thin oil film (typically 0.03-0.05mm) separates the journal from the bearing shell.
+- Temperature rise indicates oil film thinning → metal-to-metal contact risk.
+- RATE OF CHANGE matters more than absolute value. Calculate: "MB#X rose from A°C (early avg) to B°C (late avg) over N readings at 4-hour intervals = (B-A)/(N×4) °C/hour, or approximately C°C/day".
+- At this rate, calculate: "Will reach warning limit (65°C) in approximately D days, alarm limit (75°C) in E days".
+- Reference: Sommerfeld number and bearing load capacity — as temperature rises, oil viscosity drops (exponentially per Walther's equation), reducing the load-carrying capacity of the hydrodynamic film. This is a self-reinforcing failure mode.
+
+TURBOCHARGER ANALYSIS:
+- TC efficiency = ability to convert exhaust gas energy into scavenge air pressure.
+- Fouling on turbine side: nozzle ring deposits → reduced gas velocity → lower TC RPM → lower scavenge air pressure → all cylinders receive less air → combustion deteriorates → exhaust temps rise → more deposits. This is a POSITIVE FEEDBACK LOOP.
+- Calculate: "TC RPM dropped from X (early) to Y (late) = Z% reduction. Simultaneously, scav air pressure dropped from A to B bar = C% reduction. Expected ratio: scav_air ∝ TC_RPM² (fan law), so D% RPM drop should cause ~E% pressure drop. Actual pressure drop of C% suggests [fouling severity]".
+- Reference: The fan/pump affinity laws — pressure is proportional to speed squared (P₂/P₁ = (N₂/N₁)²), flow is proportional to speed (Q₂/Q₁ = N₂/N₁).
+
+COOLING WATER ANALYSIS:
+- JCW delta-T (outlet minus inlet) represents heat absorbed from cylinder liners and heads.
+- Normal delta-T is 8-12°C. Rising delta-T with dropping pressure = pump degradation.
+- Calculate: "JCW delta-T = outlet(X°C) - inlet(Y°C) = Z°C. Normal range: 8-12°C."
+- If pressure dropping: "JCW pressure dropped from A to B bar = C% reduction. By pump affinity laws (P ∝ N²), this suggests effective pump speed reduction or impeller wear reducing flow. Reduced flow means same heat load over less coolant = higher delta-T."
+- Elevated liner temperatures follow directly from reduced coolant flow — Newton's law of cooling (Q = hA·ΔT, where h depends on flow velocity).
+
+LUBE OIL ANALYSIS:
+- LO pressure is critical — it maintains the hydrodynamic film on all bearings.
+- Low LO pressure causes: warning at 2.5 bar, alarm at 2.0 bar, engine slowdown at 1.5 bar.
+- Rising LO temperature = either increased heat load (bearing friction) or reduced cooler efficiency.
+- If LO pressure dropping AND bearing temps rising: "This correlation suggests either oil contamination (water ingress reduces viscosity per Walther's equation) or pump wear."
+- Calculate rate of LO pressure decline if applicable.
+
+SCAVENGE AIR & FIRE RISK:
+- Scavenge air temperature above 55°C is WARNING, above 65°C is ALARM for under-piston scavenge fire risk.
+- The fire triangle: fuel (lube oil leaking past piston rings), oxygen (scavenge air), heat (elevated scav temp).
+- If scav air temp rising with specific cylinder liner temp spiking: "This combination — elevated scavenge air temp (X°C, Y°C above normal) plus Cylinder Z liner temp at W°C — indicates possible accumulation of combustible deposits in the under-piston scavenge space, creating conditions for a scavenge fire."
+
+=== OUTPUT FORMAT ===
+
+Structure your response EXACTLY as follows:
+
+## 🚨 CRITICAL FINDINGS
+For each critical finding:
+- **What:** [Exact observation with numbers]
+- **Why it matters:** [Engineering principle]
+- **The math:** [Calculation showing severity]
+- **Action:** [What to do, when, by whom]
+(If no critical findings, state "No critical findings — all parameters within acceptable limits" and explain what "acceptable" means)
 
 ## 📊 CYLINDER-BY-CYLINDER ANALYSIS
-Exhaust temps, Pmax, Pcomp, liner temps — identify any cylinder that deviates
+For EACH of the 6 cylinders, provide a one-line status, then deep-dive on any deviating cylinder:
+- Calculate mean exhaust temp across all cylinders, then each cylinder's deviation from mean (°C and %)
+- Cross-reference Pmax and Pcomp for deviating cylinders — explain what the combination means
+- Reference combustion theory: injection timing, atomisation quality, compression integrity
 
 ## ⚙️ BEARING ASSESSMENT
-All 7 main bearings + thrust bearing — flag any rising trends
+For each of 7 main bearings + thrust bearing:
+- Current temp, trend direction, and RATE OF CHANGE (°C/day)
+- If any bearing is rising: calculate days until warning limit and alarm limit
+- Reference hydrodynamic lubrication theory and oil film stability
 
 ## 🌀 TURBOCHARGER HEALTH
-TC efficiency based on RPM, exhaust temps, and scavenge air pressure
+- Calculate TC efficiency trend using RPM and scavenge air pressure (apply fan laws)
+- Show the math: expected pressure vs actual pressure based on RPM change
+- Identify if fouling is present and estimate severity
 
 ## 💧 COOLING & LUBRICATION
-JCW system, LO system — any concerns
+- JCW: Calculate delta-T, compare to normal range, explain significance
+- LO: Pressure trend, temperature trend, correlation to bearing health
+- Show calculations for any degradation rates
 
 ## 📋 RECOMMENDED MAINTENANCE SCHEDULE
-Priority-ordered with timeframes and specific actions
+A numbered, priority-ordered list. Each item MUST include:
+1. **What:** Specific action (e.g., "Overhaul fuel injector on Cylinder 3")
+2. **When:** Timeframe (e.g., "Within 48 hours", "Next port call", "Next dry dock")
+3. **Why:** The engineering reason this is needed
+4. **Reference:** ISM Code/PMS/Class requirement if applicable
+5. **Parts needed:** Specific spare parts
+6. **Estimated downtime:** Hours
 
 ## 🎯 OVERALL ENGINE HEALTH SCORE
-Score out of 100 with justification"""
+- Score out of 100
+- Breakdown: Combustion (X/25), Bearings (X/25), Turbocharger (X/20), Systems (X/15), Trend (X/15)
+- Each sub-score must be justified with one sentence referencing data"""
 
-            user_prompt = f"""Analyze the following main engine sensor data from the automation system:
+            user_prompt = f"""Analyze the following main engine sensor data from the automation system.
+The data covers {len(df)} readings taken at 4-hour intervals (watch-by-watch).
+Current running hours: {latest.get('hours_running', 'N/A')}.
 
+I need you to:
+1. Show your reasoning — explain WHY each finding matters using engineering principles
+2. Show the math — calculate deviations, rates of change, days until limits
+3. Be specific — reference exact cylinder numbers, bearing numbers, exact values
+4. Compare early data vs late data to identify degradation trends
+5. Give actionable maintenance recommendations with timeframes
+
+DATA:
 {data_summary}
 
-Provide a comprehensive Chief Engineer's diagnostic report with specific findings, root causes, and maintenance recommendations."""
+Provide the full Chief Engineer's diagnostic report."""
 
             try:
                 client = OpenAI(api_key=api_key)
@@ -634,8 +861,8 @@ Provide a comprehensive Chief Engineer's diagnostic report with specific finding
                             {"role": "system", "content": system_prompt},
                             {"role": "user", "content": user_prompt},
                         ],
-                        temperature=0.3,
-                        max_tokens=4000,
+                        temperature=0.2,
+                        max_tokens=6000,
                     )
 
                 result = response.choices[0].message.content

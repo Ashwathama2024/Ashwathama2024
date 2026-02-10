@@ -124,18 +124,34 @@ streamlit run app.py
 
 ## 🧠 How the AI Analysis Works
 
-1. **Data Summary** — The app computes per-parameter statistics with early-vs-late trend detection
-2. **Per-Cylinder Comparison** — Each cylinder's exhaust temp, Pmax, Pcomp are compared and trends flagged
-3. **Bearing Trend Analysis** — Each of 7 main bearings + thrust bearing analyzed for rising temperature trends
-4. **System-wide Correlation** — TC efficiency, cooling water delta-T, LO pressure drops are cross-referenced
-5. **Chief Engineer Prompt** — The AI receives all data and alarm states, then generates a structured diagnostic report with:
-   - Critical findings
-   - Cylinder-by-cylinder analysis
-   - Bearing assessment
-   - Turbocharger health
-   - Cooling & lubrication review
-   - Recommended maintenance schedule
-   - Overall engine health score (out of 100)
+This isn't a generic "feed data to AI and get text back" system. The AI is engineered to **think like a Chief Engineer** — every finding includes three things:
+
+### 1. The Observation (What the data shows)
+Exact numbers, exact cylinder/bearing, exact deviation from normal.
+
+### 2. The Engineering Reasoning (Why it matters)
+Real principles from thermodynamics, tribology, combustion theory, and fluid mechanics:
+- **Combustion theory** — Late injection → after-burning → higher exhaust temp + lower Pmax (energy converts to heat instead of work)
+- **Hydrodynamic lubrication** — Bearing temp rise → oil viscosity drops (Walther's equation) → thinner film → self-reinforcing failure
+- **Fan/pump affinity laws** — Pressure ∝ Speed² (P₂/P₁ = (N₂/N₁)²) — used to calculate expected vs actual TC/pump performance
+- **Newton's law of cooling** — Q = hA·ΔT — explains why reduced coolant flow raises liner temperatures
+- **Fire triangle** — Fuel (lube oil) + Oxygen (scav air) + Heat (elevated temp) = scavenge fire risk
+
+### 3. The Math (Proof of severity)
+Every finding is backed by calculations:
+- Cylinder exhaust deviation: °C and % from fleet mean
+- Bearing rate of change: °C/day, with days-until-warning and days-until-alarm projections
+- TC efficiency: Fan law comparison (expected vs actual scavenge air pressure based on RPM change)
+- JCW delta-T: Outlet minus inlet, compared to normal 8-12°C range
+- SFOC trend: Fuel efficiency degradation rate
+
+### Data Pipeline
+1. **Statistical Summary** — Per-parameter mean, min, max, std dev, latest value
+2. **Trend Detection** — Early (first 33%) vs Late (last 33%) comparison for every parameter
+3. **Rate Calculations** — °C/day for bearings, fan law ratios for TC, delta-T for cooling
+4. **Cross-correlation** — Pmax + Pcomp + exhaust temp per cylinder to identify root cause (injection vs compression)
+5. **Alarm Check** — Every parameter checked against engine maker warning/alarm limits
+6. **AI Report** — All enriched data sent to AI with structured output format requiring math and reasoning
 
 ---
 
