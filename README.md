@@ -40,6 +40,7 @@ I founded **[MarineGPT](https://marinegpt.in)** to build the intelligence layer 
 ### ⚓ AI for Maritime
 | Project | Description |
 |---------|-------------|
+| [manual-diagnostic-ai](https://github.com/Ashwathama2024/manual-diagnostic-ai) | 🔧 Upload equipment manuals → Offline AI diagnoses faults using local LLM + RAG |
 | [predictive-maintenance-ai](https://github.com/Ashwathama2024/predictive-maintenance-ai) | ⚙️ Upload sensor data → AI predicts equipment failures & maintenance schedules |
 | [maritime-safety-checklist-ai](https://github.com/Ashwathama2024/maritime-safety-checklist-ai) | 🚢 AI-generated ISM/SOLAS/MARPOL compliant safety checklists |
 | [voyage-risk-analyzer](https://github.com/Ashwathama2024/voyage-risk-analyzer) | 🌊 Enter route + cargo → Get weather, piracy, regulatory risk analysis |
@@ -90,6 +91,8 @@ I founded **[MarineGPT](https://marinegpt.in)** to build the intelligence layer 
 ![Streamlit](https://img.shields.io/badge/Streamlit-FF4B4B?style=flat-square&logo=streamlit&logoColor=white)
 ![LangChain](https://img.shields.io/badge/LangChain-1C3C3C?style=flat-square&logo=langchain&logoColor=white)
 ![OpenAI](https://img.shields.io/badge/OpenAI-412991?style=flat-square&logo=openai&logoColor=white)
+![Ollama](https://img.shields.io/badge/Ollama-000000?style=flat-square&logo=ollama&logoColor=white)
+![ChromaDB](https://img.shields.io/badge/ChromaDB-FF6F61?style=flat-square&logoColor=white)
 ![Node.js](https://img.shields.io/badge/Node.js-339933?style=flat-square&logo=node.js&logoColor=white)
 ![Express](https://img.shields.io/badge/Express-000000?style=flat-square&logo=express&logoColor=white)
 ![Prisma](https://img.shields.io/badge/Prisma-2D3748?style=flat-square&logo=prisma&logoColor=white)
@@ -105,6 +108,7 @@ I founded **[MarineGPT](https://marinegpt.in)** to build the intelligence layer 
 
 ## 🔭 Currently Working On
 
+- Building **Manual-RAG Diagnostic Assistant** — offline AI that reads equipment manuals and diagnoses faults using local LLM
 - Building **MarineGPT v2** — a multi-agent system for end-to-end vessel operations intelligence
 - Developing an **AI-powered Port State Control inspection prep tool** for ship operators
 - Writing a series on **"AI for the Maritime Industry"** on LinkedIn
