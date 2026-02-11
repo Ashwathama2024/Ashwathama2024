@@ -2,40 +2,65 @@
 
 **AI-powered equipment diagnosis from your technical manuals — runs 100% offline.**
 
-Upload PDF manuals (text, tables, diagrams). Ask diagnostic questions. Get engineering-grade answers with source citations. No internet required. No data leaves your machine.
+Upload PDF manuals (text, tables, diagrams). Ask diagnostic questions. Get engineering-grade answers with precise section + page citations. No internet required. No data leaves your machine.
+
+---
+
+## What Makes This Different
+
+- **Auto-pipeline** — Upload PDF → text + tables + diagrams extracted → embedded → stored. One click.
+- **Semantic chunking** — Every chunk knows its chapter, section, and subsection. Not just "Page 45" but "MAN B&W Manual > Chapter 3: Fuel System > 3.2.1 Injection Timing > Page 45"
+- **Equipment isolation** — Each machine gets its own vector database. Main engine data never mixes with generator data.
+- **Streaming chat** — Responses appear word-by-word as the LLM generates them
+- **9 recommended models** — from Phi-3 (8GB RAM) to Qwen 2.5 72B (rivals GPT-4)
+- **100% offline** after setup — no cloud APIs, no telemetry, no data leaks
 
 ---
 
 ## Architecture
 
 ```
-PDF Manuals → Doc Processor → ChromaDB (per-equipment) → Ollama LLM → Diagnosis
-                 │                    │                       │
-                 ├─ PyMuPDF (text)    ├─ Equipment A DB       ├─ Llama 3.1 8B
-                 ├─ pdfplumber (tables)├─ Equipment B DB       ├─ Phi-3 3.8B
-                 ├─ Tesseract (OCR)   └─ Equipment C DB       └─ or any Ollama model
-                 └─ Sentence chunking
+Upload PDF ──> Doc Processor ──> ChromaDB ──> Diagnostic Chat
+                 │                  │              │
+                 ├─ Text (PyMuPDF)  │              ├─ User question
+                 ├─ Tables          │              ├─ Vector search (top-k)
+                 │   (pdfplumber)   │              ├─ Context + question → LLM
+                 ├─ Images (OCR)    │              └─ Streaming answer
+                 ├─ Section detect  │                  + section citations
+                 └─ Semantic chunk  │
+                     with hierarchy │
+                                    ├─ Equipment A collection
+                                    ├─ Equipment B collection
+                                    └─ Equipment C collection
 ```
 
-**Key Design Decisions:**
-- **Equipment isolation** — each piece of machinery gets its own ChromaDB collection. Data from a main engine manual never mixes with generator manual data.
-- **Multi-modal extraction** — PDFs aren't just text. Tables contain critical specs (clearances, tolerances). Diagrams contain flow paths and schematics. We extract all three.
-- **Local-first** — after initial `pip install` and model download, the entire system runs offline. Built for ship engine rooms, remote sites, secure facilities.
-- **Engineering reasoning** — the LLM prompt is tuned for diagnostic depth: symptom analysis → causal chain → manual-referenced procedures → corrective actions.
+**Key design decisions:**
+- **Section-aware chunking** — regex-based heading detection (CHAPTER, numbered sections, ALL CAPS headers) builds a breadcrumb hierarchy for every chunk
+- **Chunk prefixing** — each chunk is prefixed with its section path so the embedding captures topic context, not just raw text
+- **Equipment isolation** — separate ChromaDB collections per equipment type
+- **BGE embeddings** — `BAAI/bge-small-en-v1.5` gives better retrieval accuracy than MiniLM with similar speed
+- **Streaming responses** — uses Streamlit's `st.write_stream` with Ollama's streaming API
 
 ---
 
-## Tech Stack
+## Recommended Models
 
-| Layer | Technology | Why |
-|-------|-----------|-----|
-| **PDF Text** | PyMuPDF | Fastest Python PDF parser, handles complex layouts |
-| **Tables** | pdfplumber | Best table extraction accuracy for technical docs |
-| **OCR** | Tesseract | Proven, offline, handles diagram text |
-| **Embeddings** | sentence-transformers (all-MiniLM-L6-v2) | 384-dim, fast CPU inference, ~22M params |
-| **Vector DB** | ChromaDB | Embedded, persistent, zero-config |
-| **LLM** | Ollama (Llama 3.1 / Phi-3) | Local inference, no API keys, GPU optional |
-| **UI** | Streamlit | Rapid deployment, no frontend build step |
+| Model | Command | RAM | Quality | Best For |
+|-------|---------|-----|---------|----------|
+| **Llama 3.3 8B** | `ollama pull llama3.3:8b` | 16 GB | Excellent | Best all-rounder |
+| **Qwen 2.5 7B** | `ollama pull qwen2.5:7b` | 16 GB | Excellent | Technical reasoning |
+| **DeepSeek R1 8B** | `ollama pull deepseek-r1:8b` | 16 GB | Excellent | Chain-of-thought diagnostics |
+| **Gemma 2 9B** | `ollama pull gemma2:9b` | 16 GB | Excellent | Instruction following |
+| **Command R 35B** | `ollama pull command-r:35b` | 32 GB | Excellent | Built for RAG + citations |
+| **Llama 3.3 70B** | `ollama pull llama3.3:70b` | 48 GB | Best | Maximum quality |
+| **Qwen 2.5 72B** | `ollama pull qwen2.5:72b` | 48 GB | Best | Rivals GPT-4 |
+| Phi-3 3.8B | `ollama pull phi3:3.8b` | 8 GB | Good | Low-resource systems |
+
+**Pick based on your hardware:**
+- **8 GB RAM** → `phi3:3.8b`
+- **16 GB RAM** → `llama3.3:8b` or `qwen2.5:7b` (recommended)
+- **32 GB RAM** → `command-r:35b` (purpose-built for RAG)
+- **48+ GB RAM** → `llama3.3:70b` or `qwen2.5:72b` (best quality)
 
 ---
 
@@ -53,10 +78,8 @@ brew install tesseract                  # macOS
 
 ```bash
 curl -fsSL https://ollama.ai/install.sh | sh
-ollama serve                             # Start server
-ollama pull llama3.1:8b                  # Pull model (16GB RAM)
-# OR
-ollama pull phi3:3.8b                    # Lighter model (8GB RAM)
+ollama serve                             # Start server (keep running)
+ollama pull llama3.3:8b                  # Pull recommended model
 ```
 
 ### 3. Python Setup
@@ -75,34 +98,45 @@ Opens at `http://localhost:8501`
 
 ---
 
-## Usage
+## Usage Flow
 
-### Register Equipment
-**Equipment Manager** → Enter ID, name, description → **Register**
+1. **Register Equipment** — `Equipment Manager` → enter ID + name → register
+2. **Upload Manuals** — `Upload Manuals` → select equipment → drop PDFs → process
+3. **Ask Questions** — `Diagnostic Chat` → type question → get streaming answer with citations
 
-Each equipment gets isolated storage. A ship might have:
-- `main_engine_01` — MAN B&W 6S50ME-C
-- `generator_01` — Wartsila 6L20
-- `boiler_01` — Aalborg OL Boiler
+The pipeline is automatic: upload → extract text/tables/diagrams → detect sections → semantic chunking → embed → store. No extra steps.
 
-### Upload Manuals
-**Upload Manuals** → Select equipment → Upload PDFs → **Process & Ingest**
+---
 
-The processor extracts:
-- Text content (instructions, procedures, descriptions)
-- Tables (clearances, specs, tolerances, torque values)
-- Diagram/image text via OCR (flow diagrams, schematics)
+## Tech Stack
 
-### Diagnostic Chat
-**Diagnostic Chat** → Select equipment → Ask questions
+| Layer | Technology | Why |
+|-------|-----------|-----|
+| **PDF Text** | PyMuPDF | Fastest Python PDF parser |
+| **Tables** | pdfplumber | Best table extraction for technical docs |
+| **OCR** | Tesseract | Proven, offline, handles diagram text |
+| **Section Detection** | Custom regex | Detects CHAPTER, numbered sections, ALL CAPS headers |
+| **Embeddings** | sentence-transformers (BGE-small) | Best retrieval accuracy at small size |
+| **Vector DB** | ChromaDB | Embedded, persistent, equipment-isolated |
+| **LLM** | Ollama (Llama 3.3 / Qwen 2.5 / etc.) | Local, no API keys, GPU optional |
+| **UI** | Streamlit | Native chat components, streaming support |
 
-Example questions:
-- *"Troubleshoot high exhaust temperature on cylinder 3"*
-- *"What are the main bearing clearances?"*
-- *"Step-by-step fuel injector overhaul procedure"*
-- *"List safety interlocks for the fuel oil system"*
+---
 
-Every answer cites the source manual and page number.
+## Project Structure
+
+```
+manual-diagnostic-ai/
+├── app.py              # Streamlit UI — 4 tabs: Chat, Equipment, Upload, Guide
+├── doc_processor.py    # PDF extraction + section detection + semantic chunking
+├── vector_store.py     # ChromaDB with equipment isolation + rich metadata
+├── llm_engine.py       # Ollama integration + 9 model recommendations + diagnostic prompt
+├── requirements.txt    # Python dependencies
+├── .env.example        # Configuration template
+├── .gitignore
+├── LICENSE             # MIT
+└── README.md
+```
 
 ---
 
@@ -113,54 +147,17 @@ Every answer cites the source manual and page number.
 | **RAM** | 8 GB | 16 GB |
 | **CPU** | 4 cores | 8+ cores |
 | **Storage** | 20 GB free | 50 GB SSD |
-| **GPU** | Not required | NVIDIA 8GB+ VRAM (3x speed) |
-
-### Model Selection by RAM
-
-| RAM | Model | Command | Quality |
-|-----|-------|---------|---------|
-| 8 GB | Phi-3 3.8B | `ollama pull phi3:3.8b` | Good |
-| 16 GB | Llama 3.1 8B | `ollama pull llama3.1:8b` | Very Good |
-| 32+ GB | Llama 3.1 70B | `ollama pull llama3.1:70b` | Excellent |
-
----
-
-## Project Structure
-
-```
-manual-diagnostic-ai/
-├── app.py              # Streamlit UI (4 tabs: Chat, Equipment, Upload, Guide)
-├── doc_processor.py    # PDF extraction pipeline (text + tables + OCR + chunking)
-├── vector_store.py     # ChromaDB with equipment-isolated collections
-├── llm_engine.py       # Ollama integration + diagnostic prompt engineering
-├── requirements.txt    # Python dependencies
-├── .env.example        # Configuration template
-├── .gitignore
-├── LICENSE             # MIT
-└── README.md
-```
+| **GPU** | Not required | NVIDIA 8GB+ VRAM (3-5x speed) |
 
 ---
 
 ## Data Privacy
 
-- **100% offline** after setup — no network calls during operation
+- **100% offline** after setup
 - **No cloud APIs** — all AI runs locally via Ollama
-- **Equipment isolation** — separate ChromaDB collections per equipment
-- **No telemetry** — ChromaDB telemetry disabled
-- **Delete anytime** — remove any equipment and all its indexed data
-
----
-
-## Supported Manual Formats
-
-| Format | Text | Tables | Images/Diagrams |
-|--------|------|--------|-----------------|
-| Digital PDF | Full extraction | Full extraction | OCR extraction |
-| Scanned PDF | OCR extraction | OCR + table detect | OCR extraction |
-| Image-heavy PDF | Via OCR | Via OCR | Via OCR |
-
-**Best results with:** Digital PDFs (not scanned), reasonable resolution, text-selectable content.
+- **Equipment isolation** — separate ChromaDB collections
+- **No telemetry** — disabled by default
+- **Delete anytime** — remove equipment and all its data in one click
 
 ---
 

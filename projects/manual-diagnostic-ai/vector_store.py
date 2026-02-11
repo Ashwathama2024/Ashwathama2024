@@ -1,8 +1,16 @@
 """
-Vector Store — Equipment-Isolated ChromaDB
-============================================
+Vector Store — Equipment-Isolated ChromaDB with Semantic Metadata
+==================================================================
 Each equipment type gets its own ChromaDB collection, ensuring
 complete data isolation between different machinery.
+
+Every chunk stores rich metadata:
+  - source_file, page_number, chunk_type (text/table/image_ocr)
+  - section_title, section_hierarchy, chapter
+  - equipment_id
+
+This allows the LLM to cite: "MAN B&W Manual > Chapter 3: Fuel System >
+3.2.1 Injection Timing > Page 45" instead of just "Page 45".
 
 Architecture:
   Equipment A → Collection "equip_boiler_main"
@@ -26,8 +34,9 @@ logger = logging.getLogger(__name__)
 # Where ChromaDB stores data on disk
 DEFAULT_PERSIST_DIR = os.environ.get("CHROMA_PERSIST_DIR", "./chroma_db")
 
-# Embedding model name
-DEFAULT_EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+# Embedding model — BGE-small gives better retrieval accuracy than MiniLM
+# while still being fast on CPU (~33M params, 384-dim)
+DEFAULT_EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5")
 
 
 # ---------------------------------------------------------------------------
@@ -37,7 +46,12 @@ DEFAULT_EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
 class LocalEmbeddingFunction:
     """
     Wraps sentence-transformers for ChromaDB.
-    Model is downloaded once, then runs 100% offline.
+    Model is downloaded once (~90MB), then runs 100% offline.
+
+    Supports:
+      - BAAI/bge-small-en-v1.5  (recommended — best retrieval at small size)
+      - all-MiniLM-L6-v2         (fastest, slightly lower quality)
+      - BAAI/bge-base-en-v1.5    (higher quality, slower)
     """
 
     def __init__(self, model_name: str = DEFAULT_EMBEDDING_MODEL):
@@ -53,7 +67,7 @@ class LocalEmbeddingFunction:
 
     def __call__(self, input: list[str]) -> list[list[float]]:
         self._load_model()
-        embeddings = self._model.encode(input, show_progress_bar=False)
+        embeddings = self._model.encode(input, show_progress_bar=False, normalize_embeddings=True)
         return embeddings.tolist()
 
     @property
@@ -74,6 +88,11 @@ class EquipmentInfo:
     description: str
     manual_count: int = 0
     chunk_count: int = 0
+    manuals: list = None
+
+    def __post_init__(self):
+        if self.manuals is None:
+            self.manuals = []
 
 
 class VectorStore:
@@ -120,11 +139,9 @@ class VectorStore:
             json.dump(self._registry, f, indent=2)
 
     def _collection_name(self, equipment_id: str) -> str:
-        # ChromaDB collection names: 3-63 chars, alphanumeric + underscores
         safe_id = equipment_id.lower().replace(" ", "_").replace("-", "_")
         safe_id = "".join(c for c in safe_id if c.isalnum() or c == "_")
         name = f"{self.COLLECTION_PREFIX}{safe_id}"
-        # Ensure valid length
         if len(name) < 3:
             name = name + "_db"
         return name[:63]
@@ -140,15 +157,15 @@ class VectorStore:
             "collection_name": col_name,
             "manual_count": 0,
             "chunk_count": 0,
+            "manuals": [],
         }
         self._save_registry()
-        # Create the collection
         self.client.get_or_create_collection(
             name=col_name,
             embedding_function=self.embedding_fn,
             metadata={"equipment_id": equipment_id, "name": name},
         )
-        logger.info(f"Registered equipment '{name}' → collection '{col_name}'")
+        logger.info(f"Registered equipment '{name}' -> collection '{col_name}'")
         return col_name
 
     def list_equipment(self) -> list[EquipmentInfo]:
@@ -161,6 +178,7 @@ class VectorStore:
                 description=meta.get("description", ""),
                 manual_count=meta.get("manual_count", 0),
                 chunk_count=meta.get("chunk_count", 0),
+                manuals=meta.get("manuals", []),
             ))
         return result
 
@@ -175,6 +193,7 @@ class VectorStore:
             description=meta.get("description", ""),
             manual_count=meta.get("manual_count", 0),
             chunk_count=meta.get("chunk_count", 0),
+            manuals=meta.get("manuals", []),
         )
 
     def delete_equipment(self, equipment_id: str) -> bool:
@@ -197,14 +216,9 @@ class VectorStore:
     def add_chunks(self, equipment_id: str, chunks: list, source_filename: str = "") -> int:
         """
         Add document chunks to an equipment's collection.
+        Stores rich metadata including section hierarchy for precise citations.
 
-        Args:
-            equipment_id: Target equipment
-            chunks: List of DocumentChunk objects (from doc_processor)
-            source_filename: Original filename for tracking
-
-        Returns:
-            Number of chunks added
+        Returns: Number of chunks added
         """
         meta = self._registry.get(equipment_id)
         if not meta:
@@ -216,7 +230,7 @@ class VectorStore:
             embedding_function=self.embedding_fn,
         )
 
-        # Prepare batch
+        # Prepare batch with rich metadata
         ids = []
         documents = []
         metadatas = []
@@ -231,12 +245,15 @@ class VectorStore:
                 "page_number": chunk.page_number,
                 "chunk_type": chunk.chunk_type,
                 "equipment_id": chunk.equipment_id,
+                "section_title": getattr(chunk, 'section_title', ''),
+                "section_hierarchy": getattr(chunk, 'section_hierarchy', ''),
+                "chapter": getattr(chunk, 'chapter', ''),
             })
 
         if not documents:
             return 0
 
-        # Add in batches (ChromaDB limit ~41666 per batch)
+        # Add in batches
         batch_size = 500
         added = 0
         for i in range(0, len(documents), batch_size):
@@ -250,9 +267,11 @@ class VectorStore:
             )
             added += len(batch_ids)
 
-        # Update registry counts
+        # Update registry
         meta["chunk_count"] = collection.count()
         meta["manual_count"] = meta.get("manual_count", 0) + (1 if source_filename else 0)
+        if source_filename and source_filename not in meta.get("manuals", []):
+            meta.setdefault("manuals", []).append(source_filename)
         self._save_registry()
 
         logger.info(f"Added {added} chunks to '{equipment_id}' (total: {meta['chunk_count']})")
@@ -264,20 +283,16 @@ class VectorStore:
         self,
         equipment_id: str,
         query_text: str,
-        n_results: int = 5,
+        n_results: int = 8,
         chunk_types: Optional[list[str]] = None,
     ) -> list[dict]:
         """
         Query an equipment's knowledge base.
-
-        Args:
-            equipment_id: Which equipment to search
-            query_text: The user's question
-            n_results: Number of results to return
-            chunk_types: Optional filter by chunk type ("text", "table", "image_ocr")
+        Returns chunks with full section metadata for precise citations.
 
         Returns:
-            List of {text, source_file, page_number, chunk_type, distance}
+            List of {text, source_file, page_number, chunk_type,
+                     section_title, section_hierarchy, chapter, distance}
         """
         meta = self._registry.get(equipment_id)
         if not meta:
@@ -292,7 +307,6 @@ class VectorStore:
         if collection.count() == 0:
             return []
 
-        # Build where filter
         where_filter = None
         if chunk_types:
             if len(chunk_types) == 1:
@@ -306,7 +320,6 @@ class VectorStore:
             where=where_filter,
         )
 
-        # Format results
         formatted = []
         if results and results["documents"]:
             for i, doc in enumerate(results["documents"][0]):
@@ -317,13 +330,16 @@ class VectorStore:
                     "source_file": meta_item.get("source_file", ""),
                     "page_number": meta_item.get("page_number", 0),
                     "chunk_type": meta_item.get("chunk_type", ""),
+                    "section_title": meta_item.get("section_title", ""),
+                    "section_hierarchy": meta_item.get("section_hierarchy", ""),
+                    "chapter": meta_item.get("chapter", ""),
                     "distance": round(distance, 4),
                 })
 
         return formatted
 
     def get_collection_stats(self, equipment_id: str) -> dict:
-        """Get stats for an equipment's collection."""
+        """Get detailed stats for an equipment's collection."""
         meta = self._registry.get(equipment_id)
         if not meta:
             return {}
@@ -340,6 +356,7 @@ class VectorStore:
                 "collection_name": col_name,
                 "total_chunks": collection.count(),
                 "manual_count": meta.get("manual_count", 0),
+                "manuals": meta.get("manuals", []),
             }
         except Exception:
             return {"equipment_id": equipment_id, "error": "Collection not found"}
